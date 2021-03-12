@@ -1,8 +1,91 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
+# payload fairing (spherically blunted cone)
+def calc_pslv_fairing(diameter):	
+	# output values
+	x_out = []; y_out = []; yne_out = []
+	
+	"""
+	sphere radius, rs = 1.176
+	tangency point, xt = rn * sin(theta), theta - half cone angle - 15 degrees
+	cone length, Lo = 1.866 * D
+	Lc = 1.5 * fairing_dia;     // cylinder length
+	Lf = 0.153 * fairing_dia;   // frustum length
+	Re = 0.7 * fairing_dia/2;   // frustum end radius
+	"""
+	R = 0.5 * diameter		# fairing radius
+	rn = 0.294 * diameter	# nose radius
+	theta_nose = np.radians(15)
+	theta_boat = np.radians(20)
+
+	# R/Lo = tan(theta_nose)
+	Lo = R / np.tan(theta_nose)
+		
+	# tangency point (circle meets cone)
+	xt = (Lo**2 / R) * np.sqrt( rn**2 / (R**2 + Lo**2) )
+	yt = xt * (R / Lo)		
+	xo = xt + np.sqrt( rn**2 - yt**2)
+	xa = xo - rn
+
+	# draw blunt sphere
+	x = np.linspace(xa, xt)
+	# to avoid closer to zero issues on y = np.sqrt(rn**2 - (xo-x)**2)
+	b = (rn**2 - (xo-x)**2)
+	# set numbers that are less than tol to zero
+	b[np.abs(b) < 1e-10] = 0
+	y = np.sqrt(b)
+	yne  = [-t for t in y]	
+	# collect array values
+	x_out = np.append(x_out, x)
+	y_out = np.append(y_out, y)
+	yne_out=np.append(yne_out, yne)
+
+	# cone from tangency
+	x = np.linspace(xt, Lo)
+	y = x * (R / Lo)
+	yne  = [-t for t in y]	
+	# collect array values
+	x_out = np.append(x_out, x)
+	y_out = np.append(y_out, y)
+	yne_out=np.append(yne_out, yne)
+
+	# cylinder part
+	x_i = x_out[-1]; y_i = y_out[-1];	
+	Lc = Lo + (1.5 * diameter)		# Length of cylinder part
+	x = np.linspace(x_i, Lc)
+	y = x/x * y_i
+	yne  = [-t for t in y]
+	# collect array values
+	x_out = np.append(x_out, x)
+	y_out = np.append(y_out, y)
+	yne_out=np.append(yne_out, yne)	
+	
+	# frustum part
+	x_i = x_out[-1]; y_i = y_out[-1];
+	Lf = Lc + (0.153 * diameter)	# Length of frustum part
+	x_end = Lf; y_end = 0.7 * diameter/2;
+	# equation of the slanting line
+	slope = (y_end - y_i) / (x_end - x_i)
+	intercept = ( (x_end * y_i) - (x_i * y_end) ) / ( x_end - x_i)
+	# conical part
+	x = np.linspace(x_i, Lf)
+	y = x * slope + intercept
+	yne  = [-t for t in y]
+	# collect array values
+	x_out = np.append(x_out, x)
+	y_out = np.append(y_out, y)
+	yne_out=np.append(yne_out, yne)	
+		
+	# other dimensions
+	rho = 0; # for gslv compatibility
+	a_dim = (R, Lo, rn, rho, xo, xa, xt, yt)
+	
+	return a_dim, x_out, y_out, yne_out
+
+
 # payload fairing (spherically blunted tangent ogive)
-def calc_payload_fairing(diameter):	
+def calc_gslv_fairing(diameter):	
 
 	# output values
 	x_out = []; y_out = []; yne_out = []
@@ -27,7 +110,7 @@ def calc_payload_fairing(diameter):
 	yt = (rn * (rho - R) ) / (rho - rn)
 	xt = xo - np.sqrt(rn**2 - yt**2)
 	xa = xo - rn
-	
+		
 	# draw blunt sphere
 	x = np.linspace(xa, xt)
 	y = np.sqrt(rn**2 - (xo-x)**2)
@@ -78,22 +161,74 @@ def calc_payload_fairing(diameter):
 	
 	return a_dim, x_out, y_out, yne_out
 
-# find the nearest index in the list for the given value
-def find_nearest(array, value):
-    array = np.asarray(array)
-    idx = (np.abs(array - value)).argmin()
-    return idx, array[idx]	
 
-# ar_from = [0, -0.2]; ar_to = [xo, -0.2]; text_loc=[xo/2-0.5, -0.5]
-# text = ' xo = '+ str(round( xo,1 ) )
-def arrow(ax, ar_from, ar_to, text, text_loc): 
-	ax.plot(ar_from[0], ar_from[1], '.' ); ax.plot(ar_to[0], ar_to[1], '+' );
-	ax.annotate( "", ar_from, ar_to , arrowprops=dict(lw=0.5, arrowstyle='<-') )	
-	ax.text(text_loc[0], text_loc[1], text, fontsize=9 )	
+# 2D pslv plot
+def plot_pslv_2D(ax, d, x, y, yne, ifdim=False):
+	# unpack the dimension values
+	R, Lo, rn, rho, xo, xa, xt, yt = d
+
+	# set correct aspect ratio
+	ax.set_aspect('equal')
+	
+	# plot	
+	ax.plot(x, y, color='g'); ax.plot(x, yne, color='g');
+
+	if ifdim:
+		# apex length
+		text = ' xa = '+ str(round( xa,1 ) )
+		arrow(ax, [0, 0], [xa, 0], text, [0.1, -0.1])
+				
+		# center of the spherical nose cap
+		text = ' xo = '+ str(round( xo,1 ) ) 
+		arrow(ax, [0, -0.2], [xo, -0.2], text, [xo/2-0.5, -0.5])
+		
+		# tangency point
+		text = ' [xt, yt] = {'+ str(round(xt,1)) +','+ str(round(-yt,1)) + '} '
+		ax.plot(xt, yt, '.' ); ax.plot(xt, -yt, '.' )
+		ax.text(xt, -yt-0.5, text, fontsize=9 )
+				
+		# blunt sphere radius, inlet radial line [xo, 0] to [xt, yt]
+		text = ' Rn = '+ str(round(rn,1))
+		arrow(ax, [xo, 0], [xt, yt], text, [(xo+xt)/2, (0+yt)/2])
+		
+		# diameter
+		text = ' R = '+ str(round(R,1))
+		arrow(ax, [Lo, 0], [Lo, R], text, [Lo, R/2])
+				
+		# ogive length
+		text = ' Lo = '+ str(round( Lo,1 ) ) 
+		arrow(ax, [0, -0.4], [Lo, -0.4] , text, [(Lo)/2, -0.7])
+		
+		# cylinder length
+		Lc = Lo + (1.5 * 2 * R)	
+		text = ' Lc = '+ str(round( (1.5 * 2 * R),1 ) ) 
+		arrow(ax, [Lo, -0.3], [Lc, -0.3] , text, [(Lo+Lc)/2, -0.6])
+		
+		# frustum length
+		Lf = Lc + (0.153 *  2 * R)
+		text = ' Lf = '+ str(round( (0.153 * 2 * R),1 ) ) 
+		arrow(ax, [Lc, -0.2], [Lf, -0.2], text, [(Lc+Lf)/2, -0.5])
+		
+		# end diameter
+		Rt = 0.7 * R
+		text = ' Re = '+ str(round(Rt,1))	
+		arrow(ax, [Lf, 0], [Lf, Rt], text, [Lf, Rt/2])	
+
+	# axis
+	ax.axhline(color='black', lw=0.5, linestyle="dashed")
+	ax.axvline(color='black', lw=0.5, linestyle="dashed")		
+	
+	# grids
+	ax.grid()
+	ax.minorticks_on()
+	ax.grid(which='major', linestyle='-', linewidth='0.5') # , color='red'
+	ax.grid(which='minor', linestyle=':', linewidth='0.5') # , color='black'	
+
 	return
 
-# 2D plot
-def plot2D(ax, d, x, y, yne, ifdim=False):
+
+# 2D gslv plot
+def plot_gslv_2D(ax, d, x, y, yne, ifdim=False):
 	# unpack the dimension values
 	R, Lo, rn, rho, xo, xa, xt, yt = d
 
@@ -118,7 +253,7 @@ def plot2D(ax, d, x, y, yne, ifdim=False):
 		ax.text(-xt+2, -yt-0.5, text, fontsize=9 )
 				
 		# blunt sphere radius, inlet radial line [xo, 0] to [xt, yt]
-		text = ' Rn = '+ str(round(rn,1)) + ' \n [0.266 * D] '
+		text = ' Rn = '+ str(round(rn,1)) 
 		arrow(ax, [xo, 0], [xt, yt], text, [(xo+xt)/2, (0+yt)/2])
 				
 		# ogive radius 
@@ -133,17 +268,17 @@ def plot2D(ax, d, x, y, yne, ifdim=False):
 		arrow(ax, [Lo, 0], [Lo, R], text, [Lo, R/2])
 				
 		# ogive length
-		text = ' Lo = '+ str(round( Lo,1 ) ) + ' \n sqrt( (rho * diameter) - $R^2$) '
+		text = ' Lo = '+ str(round( Lo,1 ) ) 
 		arrow(ax, [0, -0.4], [Lo, -0.4] , text, [(Lo)/2, -0.7])
 		
 		# cylinder length
 		Lc = Lo + (0.75 * 2 * R)	
-		text = ' Lc = '+ str(round( (0.75 * 2 * R),1 ) ) + ' \n [0.75 * D] '
+		text = ' Lc = '+ str(round( (0.75 * 2 * R),1 ) ) 
 		arrow(ax, [Lo, -0.3], [Lc, -0.3] , text, [(Lo+Lc)/2, -0.6])
 		
 		# frustum length
 		Lf = Lc + (0.2576 *  2 * R)
-		text = ' Lf = '+ str(round( (0.2576 * 2 * R),1 ) ) + ' \n [0.2576 * D] '
+		text = ' Lf = '+ str(round( (0.2576 * 2 * R),1 ) ) 
 		arrow(ax, [Lc, -0.2], [Lf, -0.2], text, [(Lc+Lf)/2, -0.5])
 		
 		# end diameter
@@ -162,6 +297,22 @@ def plot2D(ax, d, x, y, yne, ifdim=False):
 	ax.grid(which='minor', linestyle=':', linewidth='0.5') # , color='black'	
 
 	return
+
+
+# find the nearest index in the list for the given value
+def find_nearest(array, value):
+    array = np.asarray(array)
+    idx = (np.abs(array - value)).argmin()
+    return idx, array[idx]	
+    
+# ar_from = [0, -0.2]; ar_to = [xo, -0.2]; text_loc=[xo/2-0.5, -0.5]
+# text = ' xo = '+ str(round( xo,1 ) )
+def arrow(ax, ar_from, ar_to, text, text_loc): 
+	ax.plot(ar_from[0], ar_from[1], '.' ); ax.plot(ar_to[0], ar_to[1], '+' );
+	ax.annotate( "", ar_from, ar_to , arrowprops=dict(lw=0.5, arrowstyle='<-') )	
+	ax.text(text_loc[0], text_loc[1], text, fontsize=9 )	
+	return
+
 
 # ring of radius r, height h, base point a
 def ring(r, h, a=0, n_theta=30, n_height=10):
@@ -217,12 +368,16 @@ def plot3D(ax, d, x, y, yne, ifdim=False):
 	ax.view_init(-170, -15)
 	return
 
-def plot(d, x, y, yne, ifdim=False):
+# plot function assembles 2D and 3D plots based on 'vehicle'
+def plot(d, x, y, yne, vehicle, ifdim=False):
 	# Plot 3d view
 	fig = plt.figure(figsize=(12,9))
 	# plot some 2d information
 	ax1 = fig.add_subplot(121)
-	plot2D(ax1, d, x, y, yne, ifdim)
+	if(vehicle=='PSLV'):
+		plot_pslv_2D(ax1, d, x, y, yne, ifdim)
+	elif(vehicle=='GSLV'):
+		plot_gslv_2D(ax1, d, x, y, yne, ifdim)
 	# plot 3d view
 	ax2 = fig.add_subplot(122, projection='3d')
 	plot3D(ax2, d, x, y, yne, ifdim)	
@@ -230,17 +385,23 @@ def plot(d, x, y, yne, ifdim=False):
 	fig.tight_layout(rect=[0, 0.03, 1, 0.95])
 	plt.show()
 	return
+
 	
 if __name__ == '__main__':
 	# fairing diameter
-	fairing_dia  = 5.0  
-	
+	fairing_dia  = 4.0  	
 	# calculate values
-	d, x, y, yne = calc_payload_fairing(fairing_dia)
+	d, x, y, yne = calc_pslv_fairing(fairing_dia)
 
-	# set flag if dimensions in 2d plot are needed
 	ifdim = True	
+	vehicle='PSLV'
 	# and plot it
-	plot(d, x, y, yne, ifdim)
-
-
+	plot(d, x, y, yne, vehicle, ifdim)
+	
+	# fairing diameter
+	fairing_dia  = 5.0  
+	# calculate values
+	d, x, y, yne = calc_gslv_fairing(fairing_dia)	
+	vehicle='GSLV'
+	# and plot it
+	plot(d, x, y, yne, vehicle, ifdim)
